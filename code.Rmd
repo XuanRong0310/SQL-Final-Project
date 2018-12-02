@@ -1,0 +1,203 @@
+---
+title: "fianl project"
+author: "Xuan Rong"
+date: "11/20/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+require('RPostgreSQL')
+drv <- dbDriver('PostgreSQL')
+con <- dbConnect(drv, dbname = 'movie', host = '35.196.38.197',                                                            
+                 port = 5432, user = 'postgres', password = 'pwd4APAN5310')
+```
+
+```{r}
+create_table <- "
+create table director(
+            director_id        serial,
+            director_name      varchar(100),
+            director_facebook_likes        integer,
+            primary key (director_id)
+);
+create table actor(
+            actor_id           serial,
+            actor_name         varchar(100),
+            actor_facebook_likes integer,
+            primary key(actor_id)
+);
+create table plot_keyword(
+            keyword_id     serial,
+            keyword_name   varchar(200),
+            primary key (keyword_id)
+);
+create table genre(
+            genres_id        serial,
+            genres_name      varchar(50),
+            primary key(genres_id)
+);
+create table movie(
+            movie_id serial,
+            movie_title       varchar(100) not null,
+            director_id       serial,
+            color             varchar(50),
+            language          varchar(20),
+            country           varchar(50),
+            content_rating    varchar(10),
+            duration          numeric(5,2),
+            number_user_for_review          integer,
+            num_critic_for_reviews          integer,
+            num_voted_users                 integer,
+            movie_facebook_likes            integer,
+            cast_total_facebook_likes       integer,
+            imdb_score    numeric(3,1),
+            facenumber_in_poster            integer,
+            title_year            numeric(4,0),  
+            aspect_ratio          numeric(4,2),
+            movie_imdb_link       varchar(320),
+            gross                 numeric(13,2),
+            budget                numeric(13,2),
+            primary key (movie_id),
+            foreign key (director_id) references director (director_id)
+);
+create table movie_keyword(
+            movie_id         serial,
+            keyword_id       serial,
+            primary key (movie_id, keyword_id),
+            foreign key (movie_id) references movie (movie_id),
+            foreign key (keyword_id) references plot_keyword (keyword_id)
+);
+create table movie_genre(
+            movie_id         serial,
+            genres_id        serial,
+            primary key (movie_id, genres_id),
+            foreign key (movie_id) references movie (movie_id),
+            foreign key (genres_id) references genre (genres_id)
+);
+create table movie_actor(
+            movie_id         serial,
+            actor_id         serial,
+            primary key (movie_id, actor_id),
+            foreign key (movie_id) references movie (movie_id),
+            foreign key (actor_id) references actor (actor_id)
+);"
+
+dbGetQuery(con, create_table)
+```
+
+```{r}
+df <- read.csv(file = 'movie_metadata.csv',header = TRUE,stringsAsFactors = FALSE)
+attach(df)
+df
+```
+
+```{r}
+#Reshape by actors
+actor_name <- data.frame(actor_1_name,actor_2_name,actor_3_name)    
+actor_name <- data.frame(actor_name = c(t(actor_name)))
+
+actor_facebook_likes <- data.frame(actor_1_facebook_likes,actor_2_facebook_likes,actor_3_facebook_likes)
+actor_facebook_likes <- c(t(actor_facebook_likes))
+                              
+df1 <- data.frame(df[rep(seq_len(nrow(df)), each=3),], actor_name,actor_facebook_likes)  
+
+#Reshape by genres and keywords
+#install.packages('tidyr')
+library(tidyr)
+df2 <- df1 %>% separate_rows(genres, sep = '\\|') 
+df3 <- df2 %>% separate_rows(plot_keywords, sep = '\\|') 
+
+df3
+```
+
+```{r}
+#Setting 
+#install.packages('data.table')
+library(data.table)
+setDT(df3)[, movie_id := .GRP, by = movie_title]
+setDT(df3)[, director_id := .GRP, by = director_name]
+setDT(df3)[, genres_id := .GRP, by = genres]
+setDT(df3)[, keyword_id := .GRP, by = plot_keywords]
+setDT(df3)[, actor_id := .GRP, by = actor_name]
+df3
+```
+
+```{r}
+names(df3)
+```
+
+```{r}
+actor <- subset(df3, select=c('actor_id','actor_name','actor_facebook_likes'))
+actor <- actor[!duplicated(actor$actor_id),]
+actor
+
+dbWriteTable(con, 'actor', actor, row.names=FALSE, append=TRUE)
+```
+
+```{r}
+genre <- subset(df3, select=c('genres_id','genres'))
+genre <- genre[!duplicated(genre),]
+names(genre) <- c('genres_id','genres_name')
+
+dbWriteTable(con, 'genre', genre, row.names=FALSE, append=TRUE)
+```
+
+```{r}
+plot_keyword <- subset(df3, select=c('keyword_id','plot_keywords'))
+plot_keyword <- plot_keyword[!duplicated(plot_keyword),]
+names(plot_keyword) <- c('keyword_id','keyword_name')
+
+dbWriteTable(con, 'plot_keyword', plot_keyword, row.names=FALSE, append=TRUE)
+```
+
+```{r}
+director <- subset(df3, select=c('director_id','director_name','director_facebook_likes'))
+director <- director[!duplicated(director_id),]
+director
+
+dbWriteTable(con, 'director', director, row.names=FALSE, append=TRUE)
+```
+```{r}
+df3
+```
+
+
+```{r}
+movie <- subset(df3, select=c('movie_id','movie_title','director_id','color','language','country','content_rating','duration','num_user_for_reviews','num_critic_for_reviews','num_voted_users','movie_facebook_likes','cast_total_facebook_likes','imdb_score','facenumber_in_poster','title_year','aspect_ratio','movie_imdb_link','gross','budget'))
+movie <- movie[!duplicated(movie_id),]
+names(movie) <- c('movie_id','movie_title','director_id','color','language','country','content_rating','duration','number_user_for_review','num_critic_for_reviews','num_voted_users','movie_facebook_likes','cast_total_facebook_likes','imdb_score','facenumber_in_poster','title_year','aspect_ratio','movie_imdb_link','gross','budget')
+movie
+
+dbWriteTable(con, 'movie', movie, row.names=FALSE, append=TRUE)
+```
+
+```{r}
+movie_actor <- subset(df3, select=c('movie_id','actor_id'))
+movie_actor <- movie_actor[!duplicated(movie_actor),]
+movie_actor
+
+dbWriteTable(con, 'movie_actor', movie_actor, row.names=FALSE, append=TRUE)
+```
+
+```{r}
+movie_genre <- subset(df3, select=c('movie_id','genres_id'))
+movie_genre <- movie_genre[!duplicated(movie_genre),]
+movie_genre
+
+dbWriteTable(con, 'movie_genre', movie_genre, row.names=FALSE, append=TRUE)
+```
+
+```{r}
+movie_keyword <- subset(df3, select=c('movie_id','keyword_id'))
+movie_keyword <- movie_keyword[!duplicated(movie_keyword),]
+movie_keyword
+
+dbWriteTable(con, 'movie_keyword', movie_keyword, row.names=FALSE, append=TRUE)
+```
+
+
+
